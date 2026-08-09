@@ -778,13 +778,12 @@ public class HandleSuperBuilder extends JavacAnnotationHandler<SuperBuilder> {
 		} else {
 			JCExpression eqNull = maker.Binary(CTC_EQUAL, tgt[0], maker.Literal(CTC_BOT, null));
 			JCExpression emptyCollection = bfd.singularData.getSingularizer().getEmptyExpression(bfd.singularData.getTargetFqn(), maker, bfd.singularData, job.parentType, job.sourceNode);
-			arg = maker.Conditional(eqNull, emptyCollection, tgt[1]);
+			arg = bfd.singularData.isPreserveNull() ? tgt[1] : maker.Conditional(eqNull, emptyCollection, tgt[1]);
 		}
 		
 		String setterName = HandlerUtil.buildAccessorName(job.sourceNode, setterPrefix, bfd.name.toString());
 		JCMethodInvocation apply = maker.Apply(List.<JCExpression>nil(), maker.Select(maker.Ident(job.toName(BUILDER_VARIABLE_NAME)), job.toName(setterName)), List.of(arg));
-		JCExpressionStatement exec = maker.Exec(apply);
-		return exec;
+        return maker.Exec(apply);
 	}
 	
 	private JCMethodDecl generateAbstractSelfMethod(SuperBuilderJob job, boolean override, String builderGenericName) {
