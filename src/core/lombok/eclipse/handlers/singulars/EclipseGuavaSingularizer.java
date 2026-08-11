@@ -116,22 +116,40 @@ abstract class EclipseGuavaSingularizer extends EclipseSingularizer {
 		generateSingularMethod(cfv, deprecate, returnTypeMaker.make(), returnStatementMaker.make(), data, builderType, fluent, access);
 		generatePluralMethod(cfv, deprecate, returnTypeMaker.make(), returnStatementMaker.make(), data, builderType, fluent, access);
 		generateClearMethod(cfv, deprecate, returnTypeMaker.make(), returnStatementMaker.make(), data,  builderType, access);
+		if (data.isPreserveNull()) generateUnsetMethod(cfv, deprecate, returnTypeMaker.make(), returnStatementMaker.make(), data, builderType, access);
 	}
 	
 	void generateClearMethod(CheckerFrameworkVersion cfv, boolean deprecate, TypeReference returnType, Statement returnStatement, SingularData data, EclipseNode builderType, AccessLevel access) {
 		MethodDeclaration md = new MethodDeclaration(((CompilationUnitDeclaration) builderType.top().get()).compilationResult);
 		md.bits |= ECLIPSE_DO_NOT_TOUCH_FLAG;
 		md.modifiers = toEclipseModifier(access);
-		
-		FieldReference thisDotField = new FieldReference(data.getPluralName(), 0L);
-		thisDotField.receiver = new ThisReference(0, 0);
-		Assignment a = new Assignment(thisDotField, new NullLiteral(0, 0), 0);
+
+		Assignment a = createConstructBuilderVar(data);
 		md.selector = HandlerUtil.buildAccessorName(builderType, "clear", new String(data.getPluralName())).toCharArray();
 		md.statements = returnStatement != null ? new Statement[] {a, returnStatement} : new Statement[] {a};
 		md.returnType = returnType;
 		addCheckerFrameworkReturnsReceiver(md.returnType, data.getSource(), cfv);
 		md.annotations = generateSelfReturnAnnotations(deprecate, data.getSource());
 		
+		data.setGeneratedByRecursive(md);
+		if (returnStatement != null) createRelevantNonNullAnnotation(builderType, md);
+		injectMethod(builderType, md);
+	}
+
+	void generateUnsetMethod(CheckerFrameworkVersion cfv, boolean deprecate, TypeReference returnType, Statement returnStatement, SingularData data, EclipseNode builderType, AccessLevel access) {
+		MethodDeclaration md = new MethodDeclaration(((CompilationUnitDeclaration) builderType.top().get()).compilationResult);
+		md.bits |= ECLIPSE_DO_NOT_TOUCH_FLAG;
+		md.modifiers = toEclipseModifier(access);
+
+		FieldReference thisDotField = new FieldReference(data.getPluralName(), 0L);
+		thisDotField.receiver = new ThisReference(0, 0);
+		Assignment a = new Assignment(thisDotField, new NullLiteral(0, 0), 0);
+		md.selector = HandlerUtil.buildAccessorName(builderType, "unset", new String(data.getPluralName())).toCharArray();
+		md.statements = returnStatement != null ? new Statement[] {a, returnStatement} : new Statement[] {a};
+		md.returnType = returnType;
+		addCheckerFrameworkReturnsReceiver(md.returnType, data.getSource(), cfv);
+		md.annotations = generateSelfReturnAnnotations(deprecate, data.getSource());
+
 		data.setGeneratedByRecursive(md);
 		if (returnStatement != null) createRelevantNonNullAnnotation(builderType, md);
 		injectMethod(builderType, md);
@@ -233,12 +251,17 @@ abstract class EclipseGuavaSingularizer extends EclipseSingularizer {
 		int agrumentsCount = getTypeArgumentsCount();
 		varType = addTypeArgs(agrumentsCount, false, builderType, varType, data.getTypeArgs());
 		
-		MessageSend emptyInvoke; {
+		Expression emptyExpression;
+		if (data.isPreserveNull()) {
+			emptyExpression = new NullLiteral(0, 0);
+		}
+		else {
 			//ImmutableX.of()
-			emptyInvoke = new MessageSend();
+			MessageSend emptyInvoke = new MessageSend();
 			emptyInvoke.selector = new char[] {'o', 'f'};
 			emptyInvoke.receiver = new QualifiedNameReference(makeGuavaTypeName(simpleTypeName, false), NULL_POSS, 0, 0);
 			emptyInvoke.typeArguments = createTypeArgs(agrumentsCount, false, builderType, data.getTypeArgs());
+			emptyExpression = emptyInvoke;
 		}
 		
 		MessageSend invokeBuild; {
@@ -257,25 +280,29 @@ abstract class EclipseGuavaSingularizer extends EclipseSingularizer {
 			isNull = new EqualExpression(thisDotField, new NullLiteral(0, 0), OperatorIds.EQUAL_EQUAL);
 		}
 		
-		Expression init = new ConditionalExpression(isNull, emptyInvoke, invokeBuild);
+		Expression init = new ConditionalExpression(isNull, emptyExpression, invokeBuild);
 		LocalDeclaration varDefStat = new LocalDeclaration(data.getPluralName(), 0, 0);
 		varDefStat.type = varType;
 		varDefStat.initialization = init;
 		statements.add(varDefStat);
 	}
-	
-	protected Statement createConstructBuilderVarIfNeeded(SingularData data, EclipseNode builderType) {
+
+	protected Assignment createConstructBuilderVar(SingularData data) {
 		FieldReference thisDotField = new FieldReference(data.getPluralName(), 0L);
 		thisDotField.receiver = new ThisReference(0, 0);
-		FieldReference thisDotField2 = new FieldReference(data.getPluralName(), 0L);
-		thisDotField2.receiver = new ThisReference(0, 0);
-		Expression cond = new EqualExpression(thisDotField, new NullLiteral(0, 0), OperatorIds.EQUAL_EQUAL);
-		
+
 		MessageSend createBuilderInvoke = new MessageSend();
 		char[][] tokenizedName = makeGuavaTypeName(getSimpleTargetTypeName(data), false);
 		createBuilderInvoke.receiver = new QualifiedNameReference(tokenizedName, NULL_POSS, 0, 0);
 		createBuilderInvoke.selector = getBuilderMethodName(data);
-		return new IfStatement(cond, new Assignment(thisDotField2, createBuilderInvoke, 0), 0, 0);
+		return new Assignment(thisDotField, createBuilderInvoke, 0);
+	}
+	
+	protected Statement createConstructBuilderVarIfNeeded(SingularData data, EclipseNode builderType) {
+		FieldReference thisDotField = new FieldReference(data.getPluralName(), 0L);
+		thisDotField.receiver = new ThisReference(0, 0);
+		Expression cond = new EqualExpression(thisDotField, new NullLiteral(0, 0), OperatorIds.EQUAL_EQUAL);
+		return new IfStatement(cond, createConstructBuilderVar(data), 0, 0);
 	}
 	
 	protected abstract LombokImmutableList<String> getArgumentSuffixes();

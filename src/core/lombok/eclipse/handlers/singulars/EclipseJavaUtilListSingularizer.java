@@ -27,25 +27,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 import lombok.core.LombokImmutableList;
+import lombok.core.handlers.GetSizeNullBehaviour;
 import lombok.eclipse.Eclipse;
 import lombok.eclipse.EclipseNode;
 import lombok.eclipse.handlers.EclipseSingularsRecipes.EclipseSingularizer;
 import lombok.eclipse.handlers.EclipseSingularsRecipes.SingularData;
 import lombok.spi.Provides;
 
-import org.eclipse.jdt.internal.compiler.ast.AllocationExpression;
-import org.eclipse.jdt.internal.compiler.ast.Assignment;
-import org.eclipse.jdt.internal.compiler.ast.BreakStatement;
-import org.eclipse.jdt.internal.compiler.ast.Expression;
-import org.eclipse.jdt.internal.compiler.ast.FieldReference;
-import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.MessageSend;
-import org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference;
-import org.eclipse.jdt.internal.compiler.ast.QualifiedTypeReference;
-import org.eclipse.jdt.internal.compiler.ast.SingleNameReference;
-import org.eclipse.jdt.internal.compiler.ast.Statement;
-import org.eclipse.jdt.internal.compiler.ast.SwitchStatement;
-import org.eclipse.jdt.internal.compiler.ast.TypeReference;
+import org.eclipse.jdt.internal.compiler.ast.*;
 
 @Provides(EclipseSingularizer.class)
 public class EclipseJavaUtilListSingularizer extends EclipseJavaUtilListSetSingularizer {
@@ -70,6 +59,13 @@ public class EclipseJavaUtilListSingularizer extends EclipseJavaUtilListSetSingu
 		}
 		
 		List<Statement> switchContents = new ArrayList<Statement>();
+
+		if (data.isPreserveNull()) { /* case -1: (null) break; */
+			switchContents.add(Eclipse.createCaseStatement(makeIntLiteral(new char[] {'-', '1'}, null)));
+			NullLiteral nullLiteral = new NullLiteral(0, 0); // No explicit null assignment technically necessary
+			switchContents.add(new Assignment(new SingleNameReference(data.getPluralName(), 0), nullLiteral, 0));
+			switchContents.add(new BreakStatement(null, 0, 0));
+		}
 		
 		/* case 0: (empty) break; */ {
 			switchContents.add(Eclipse.createCaseStatement(makeIntLiteral(new char[] {'0'}, null)));
@@ -121,10 +117,11 @@ public class EclipseJavaUtilListSingularizer extends EclipseJavaUtilListSetSingu
 				switchContents.add(new Assignment(new SingleNameReference(data.getPluralName(), 0), unmodInvoke, 0));
 			}
 		}
-		
+
 		SwitchStatement switchStat = new SwitchStatement();
 		switchStat.statements = switchContents.toArray(new Statement[0]);
-		switchStat.expression = getSize(builderType, data.getPluralName(), true, builderVariable);
+		GetSizeNullBehaviour nullBehaviour = data.isPreserveNull() ? GetSizeNullBehaviour.NEGATIVE : GetSizeNullBehaviour.EMPTY;
+		switchStat.expression = getSize(builderType, data.getPluralName(), nullBehaviour, builderVariable);
 		
 		TypeReference localShadowerType = new QualifiedTypeReference(Eclipse.fromQualifiedName(data.getTargetFqn()), NULL_POSS);
 		localShadowerType = addTypeArgs(1, false, builderType, localShadowerType, data.getTypeArgs());

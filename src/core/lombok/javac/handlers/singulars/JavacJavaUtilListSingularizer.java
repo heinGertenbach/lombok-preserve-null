@@ -25,6 +25,7 @@ import static lombok.javac.Javac.*;
 import static lombok.javac.handlers.JavacHandlerUtil.*;
 
 import lombok.core.LombokImmutableList;
+import lombok.core.handlers.GetSizeNullBehaviour;
 import lombok.javac.JavacNode;
 import lombok.javac.JavacTreeMaker;
 import lombok.javac.handlers.JavacSingularsRecipes.JavacSingularizer;
@@ -53,11 +54,13 @@ public class JavacJavaUtilListSingularizer extends JavacJavaUtilListSetSingulari
 		List<JCExpression> jceBlank = List.nil();
 		ListBuffer<JCCase> cases = new ListBuffer<JCCase>();
 
-		 if (data.isPreserveNull()) { /* case -1: (null); break; */
+		/* case -1: (null); break; */
+		if (data.isPreserveNull()) {
+			// No explicit null assignment technically necessary
 			JCStatement assignStat = maker.Exec(maker.Assign(maker.Ident(data.getPluralName()), maker.Literal(CTC_BOT, null)));
 			JCStatement breakStat = maker.Break(null);
-			JCCase emptyCase = maker.Case(maker.Literal(CTC_INT, -1), List.of(assignStat, breakStat));
-			cases.append(emptyCase);
+			JCCase nullCase = maker.Case(maker.Literal(CTC_INT, -1), List.of(assignStat, breakStat));
+			cases.append(nullCase);
 		}
 
 		/* case 0: (empty); break; */ {

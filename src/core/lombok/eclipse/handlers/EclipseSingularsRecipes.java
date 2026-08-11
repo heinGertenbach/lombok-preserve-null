@@ -31,6 +31,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import lombok.core.handlers.GetSizeNullBehaviour;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Annotation;
@@ -132,13 +133,14 @@ public class EclipseSingularsRecipes {
 		private final String targetFqn;
 		private final EclipseSingularizer singularizer;
 		private final boolean ignoreNullCollections;
+		private final boolean preserveNull;
 		private final ASTNode source;
 		
-		public SingularData(EclipseNode annotation, char[] singularName, char[] pluralName, List<TypeReference> typeArgs, String targetFqn, EclipseSingularizer singularizer, ASTNode source, boolean ignoreNullCollections) {
-			this(annotation, singularName, pluralName, typeArgs, targetFqn, singularizer, source, ignoreNullCollections, new char[0]);
+		public SingularData(EclipseNode annotation, char[] singularName, char[] pluralName, List<TypeReference> typeArgs, String targetFqn, EclipseSingularizer singularizer, ASTNode source, boolean ignoreNullCollections, boolean preserveNull) {
+			this(annotation, singularName, pluralName, typeArgs, targetFqn, singularizer, source, ignoreNullCollections, preserveNull, new char[0]);
 		}
 		
-		public SingularData(EclipseNode annotation, char[] singularName, char[] pluralName, List<TypeReference> typeArgs, String targetFqn, EclipseSingularizer singularizer, ASTNode source, boolean ignoreNullCollections, char[] setterPrefix) {
+		public SingularData(EclipseNode annotation, char[] singularName, char[] pluralName, List<TypeReference> typeArgs, String targetFqn, EclipseSingularizer singularizer, ASTNode source, boolean ignoreNullCollections, boolean preserveNull, char[] setterPrefix) {
 			this.annotation = annotation;
 			this.singularName = singularName;
 			this.pluralName = pluralName;
@@ -147,6 +149,7 @@ public class EclipseSingularsRecipes {
 			this.singularizer = singularizer;
 			this.source = source;
 			this.ignoreNullCollections = ignoreNullCollections;
+			this.preserveNull = preserveNull;
 			this.setterPrefix = setterPrefix;
 		}
 		
@@ -197,6 +200,8 @@ public class EclipseSingularsRecipes {
 		public boolean isIgnoreNullCollections() {
 			return ignoreNullCollections;
 		}
+
+		public boolean isPreserveNull() { return preserveNull; }
 		
 		public String getTargetSimpleType() {
 			int idx = targetFqn.lastIndexOf(".");
@@ -381,25 +386,24 @@ public class EclipseSingularsRecipes {
 		}
 		
 		private static final char[] SIZE_TEXT = new char[] {'s', 'i', 'z', 'e'};
-		
-		/** Generates 'this.<em>name</em>.size()' as an expression; if nullGuard is true, it's this.name == null ? 0 : this.name.size(). */
-		protected Expression getSize(EclipseNode builderType, char[] name, boolean nullGuard, String builderVariable) {
+
+		/** Generates '<em>builderVariable</em>.<em>name</em>.size()' as an expression; Look at {@link GetSizeNullBehaviour} for behaviour when '<em>builderVariable</em>.<em>name</em>' is null. */
+		protected Expression getSize(EclipseNode builderType, char[] name, GetSizeNullBehaviour nullBehaviour, String builderVariable) {
 			MessageSend invoke = new MessageSend();
 			Reference thisRef = getBuilderReference(builderVariable);
 			FieldReference thisDotName = new FieldReference(name, 0L);
 			thisDotName.receiver = thisRef;
 			invoke.receiver = thisDotName;
 			invoke.selector = SIZE_TEXT;
-			if (!nullGuard) return invoke;
+			if (nullBehaviour == GetSizeNullBehaviour.NONE) return invoke;
 			
 			Reference cdnThisRef = getBuilderReference(builderVariable);
 			FieldReference cdnThisDotName = new FieldReference(name, 0L);
 			cdnThisDotName.receiver = cdnThisRef;
 			NullLiteral nullLiteral = new NullLiteral(0, 0);
 			EqualExpression isNull = new EqualExpression(cdnThisDotName, nullLiteral, OperatorIds.EQUAL_EQUAL);
-			IntLiteral zeroLiteral = makeIntLiteral(new char[] {'0'}, null);
-			ConditionalExpression conditional = new ConditionalExpression(isNull, zeroLiteral, invoke);
-			return conditional;
+			IntLiteral constantLiteral = makeIntLiteral(nullBehaviour == GetSizeNullBehaviour.EMPTY ? new char[] {'0'} : new char[] {'-', '1'}, null);
+			return new ConditionalExpression(isNull, constantLiteral, invoke);
 		}
 		
 		protected TypeReference cloneParamType(int index, List<TypeReference> typeArgs, EclipseNode builderType) {

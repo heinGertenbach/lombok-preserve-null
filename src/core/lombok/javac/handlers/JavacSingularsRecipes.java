@@ -53,6 +53,7 @@ import lombok.core.LombokImmutableList;
 import lombok.core.SpiLoadUtil;
 import lombok.core.TypeLibrary;
 import lombok.core.configuration.CheckerFrameworkVersion;
+import lombok.core.handlers.GetSizeNullBehaviour;
 import lombok.core.handlers.HandlerUtil;
 import lombok.javac.JavacNode;
 import lombok.javac.JavacTreeMaker;
@@ -244,7 +245,7 @@ public class JavacSingularsRecipes {
 		 * Generates the singular, plural, and clear methods for the given {@link SingularData}.
 		 * Uses the given {@code builderType} as return type if {@code chain == true}, {@code void} otherwise.
 		 * If you need more control over the return type and value, use
-		 * {@link #generateMethods(SingularData, boolean, JavacNode, JCTree, boolean, ExpressionMaker, StatementMaker)}.
+		 * {@link #generateMethods(CheckerFrameworkVersion, SingularData, boolean, JavacNode, JavacNode, boolean, ExpressionMaker, StatementMaker, AccessLevel)}.
 		 */
 		public void generateMethods(final BuilderJob job, SingularData data, boolean deprecate) {
 			//job.checkerFramework, job.builderType, job.source, job.oldFluent, job.oldChain, job.accessInners
@@ -477,20 +478,7 @@ public class JavacSingularsRecipes {
 			return arguments.toList();
 		}
 
-		public static enum GetSizeNullBehaviour {
-			/** Generate '<em>builderVariable</em>.<em>name</em>.size()' as is, without any null checks. Same as legacy 'nullGuard = true'*/
-			NONE,
-			/** Generate '<em>builderVariable</em>.<em>name</em> == null ? 0 : <em>builderVariable</em>.<em>name</em>.size()' to return zero if null. Same as legacy 'nullGuard = true'*/
-			EMPTY,
-			/** Generate '<em>builderVariable</em>.<em>name</em> == null ? -1 : <em>builderVariable</em>.<em>name</em>.size()' to return negative one if null*/
-			NEGATIVE;
-
-			public static GetSizeNullBehaviour ofNullGuard(boolean nullGuard) {
-				return nullGuard ? EMPTY : NONE;
-			}
-		}
-		
-		/** Generates '<em>builderVariable</em>.<em>name</em>.size()' as an expression; Look at GetSizeNullBehaviour for null behaviour. */
+		/** Generates '<em>builderVariable</em>.<em>name</em>.size()' as an expression; Look at {@link GetSizeNullBehaviour} for null behaviour when '<em>builderVariable</em>.<em>name</em>' is null. */
 		protected JCExpression getSize(JavacTreeMaker maker, JavacNode builderType, Name name, GetSizeNullBehaviour nullBehaviour, boolean parens, String builderVariable) {
 			Name thisName = builderType.toName(builderVariable);
 			JCExpression fn = maker.Select(maker.Select(maker.Ident(thisName), name), builderType.toName("size"));

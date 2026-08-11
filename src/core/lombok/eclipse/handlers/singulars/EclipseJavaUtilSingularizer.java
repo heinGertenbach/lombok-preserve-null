@@ -29,6 +29,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+import lombok.core.handlers.GetSizeNullBehaviour;
 import org.eclipse.jdt.internal.compiler.ast.AllocationExpression;
 import org.eclipse.jdt.internal.compiler.ast.Assignment;
 import org.eclipse.jdt.internal.compiler.ast.BinaryExpression;
@@ -93,6 +94,13 @@ abstract class EclipseJavaUtilSingularizer extends EclipseSingularizer {
 	protected List<Statement> createJavaUtilSetMapInitialCapacitySwitchStatements(SingularData data, EclipseNode builderType, boolean mapMode, String emptyCollectionMethod, String singletonCollectionMethod, String targetType, String builderVariable) {
 		List<Statement> switchContents = new ArrayList<Statement>();
 		char[] keyName = mapMode ? (new String(data.getPluralName()) + "$key").toCharArray() : data.getPluralName();
+
+		if (data.isPreserveNull()) { // case -1: (null); break;
+			switchContents.add(Eclipse.createCaseStatement(makeIntLiteral(new char[] {'-', '1'}, null)));
+			NullLiteral nullLiteral = new NullLiteral(0, 0); // No explicit null assignment technically necessary
+			switchContents.add(new Assignment(new SingleNameReference(data.getPluralName(), 0), nullLiteral, 0));
+			switchContents.add(new BreakStatement(null, 0, 0));
+		}
 		
 		if (emptyCollectionMethod != null) { // case 0: (empty); break;
 			switchContents.add(Eclipse.createCaseStatement(makeIntLiteral(new char[] {'0'}, null)));
@@ -148,7 +156,8 @@ abstract class EclipseJavaUtilSingularizer extends EclipseSingularizer {
 		
 		SwitchStatement switchStat = new SwitchStatement();
 		switchStat.statements = switchContents.toArray(new Statement[0]);
-		switchStat.expression = getSize(builderType, keyName, true, builderVariable);
+		GetSizeNullBehaviour nullBehaviour = data.isPreserveNull() ? GetSizeNullBehaviour.NEGATIVE : GetSizeNullBehaviour.EMPTY;
+		switchStat.expression = getSize(builderType, keyName, nullBehaviour, builderVariable);
 		
 		TypeReference localShadowerType = new QualifiedTypeReference(fromQualifiedName(data.getTargetFqn()), NULL_POSS);
 		localShadowerType = addTypeArgs(mapMode ? 2 : 1, false, builderType, localShadowerType, data.getTypeArgs());
@@ -166,11 +175,11 @@ abstract class EclipseJavaUtilSingularizer extends EclipseSingularizer {
 			if (addInitialCapacityArg) {
 				// this.varName.size() < MAX_POWER_OF_2 ? 1 + this.varName.size() + (this.varName.size() - 3) / 3 : Integer.MAX_VALUE;
 				// lessThanCutOff = this.varName.size() < MAX_POWER_OF_2
-				Expression lessThanCutoff = new BinaryExpression(getSize(builderType, varName, nullGuard, builderVariable), makeIntLiteral("0x40000000".toCharArray(), null), OperatorIds.LESS);
+				Expression lessThanCutoff = new BinaryExpression(getSize(builderType, varName, GetSizeNullBehaviour.ofNullGuard(nullGuard), builderVariable), makeIntLiteral("0x40000000".toCharArray(), null), OperatorIds.LESS);
 				FieldReference integerMaxValue = new FieldReference("MAX_VALUE".toCharArray(), 0L);
 				integerMaxValue.receiver = new QualifiedNameReference(TypeConstants.JAVA_LANG_INTEGER, NULL_POSS, 0, 0);
-				Expression sizeFormulaLeft = new BinaryExpression(makeIntLiteral(new char[] {'1'}, null), getSize(builderType, varName, nullGuard, builderVariable), OperatorIds.PLUS);
-				Expression sizeFormulaRightLeft = new BinaryExpression(getSize(builderType, varName, nullGuard, builderVariable), makeIntLiteral(new char[] {'3'}, null), OperatorIds.MINUS);
+				Expression sizeFormulaLeft = new BinaryExpression(makeIntLiteral(new char[] {'1'}, null), getSize(builderType, varName, GetSizeNullBehaviour.ofNullGuard(nullGuard), builderVariable), OperatorIds.PLUS);
+				Expression sizeFormulaRightLeft = new BinaryExpression(getSize(builderType, varName, GetSizeNullBehaviour.ofNullGuard(nullGuard), builderVariable), makeIntLiteral(new char[] {'3'}, null), OperatorIds.MINUS);
 				Expression sizeFormulaRight = new BinaryExpression(sizeFormulaRightLeft, makeIntLiteral(new char[] {'3'}, null), OperatorIds.DIVIDE);
 				Expression sizeFormula = new BinaryExpression(sizeFormulaLeft, sizeFormulaRight, OperatorIds.PLUS);
 				Expression cond = new ConditionalExpression(lessThanCutoff, sizeFormula, integerMaxValue);
@@ -219,7 +228,7 @@ abstract class EclipseJavaUtilSingularizer extends EclipseSingularizer {
 				LocalDeclaration forInit = new LocalDeclaration(iVar, 0, 0);
 				forInit.type = TypeReference.baseTypeReference(TypeIds.T_int, 0);
 				forInit.initialization = makeIntLiteral(new char[] {'0'}, null);
-				Expression checkExpr = new BinaryExpression(new SingleNameReference(iVar, 0L), getSize(builderType, varName, nullGuard, builderVariable), OperatorIds.LESS);
+				Expression checkExpr = new BinaryExpression(new SingleNameReference(iVar, 0L), getSize(builderType, varName, GetSizeNullBehaviour.ofNullGuard(nullGuard), builderVariable), OperatorIds.LESS);
 				Expression incrementExpr = new PostfixExpression(new SingleNameReference(iVar, 0L), IntLiteral.One, OperatorIds.PLUS, 0);
 				fillStat = new ForStatement(new Statement[] {forInit}, checkExpr, new Statement[] {incrementExpr}, pluralnameDotPut, true, 0, 0);
 			} else {
@@ -253,8 +262,8 @@ abstract class EclipseJavaUtilSingularizer extends EclipseSingularizer {
 		
 		return Arrays.asList(createStat, fillStat, unmodifiableStat);
 	}
-	
-	protected Statement createConstructBuilderVarIfNeeded(SingularData data, EclipseNode builderType, boolean mapMode) {
+
+	protected Statement createConstructBuilderVar(SingularData data, EclipseNode builderType, boolean mapMode) {
 		char[] v1Name, v2Name;
 		if (mapMode) {
 			String n = new String(data.getPluralName());
@@ -264,12 +273,8 @@ abstract class EclipseJavaUtilSingularizer extends EclipseSingularizer {
 			v1Name = data.getPluralName();
 			v2Name = null;
 		}
-		
+
 		FieldReference thisDotField = new FieldReference(v1Name, 0L);
-		thisDotField.receiver = new ThisReference(0, 0);
-		Expression cond = new EqualExpression(thisDotField, new NullLiteral(0, 0), OperatorIds.EQUAL_EQUAL);
-		
-		thisDotField = new FieldReference(v1Name, 0L);
 		thisDotField.receiver = new ThisReference(0, 0);
 		TypeReference v1Type = new QualifiedTypeReference(JAVA_UTIL_ARRAYLIST, NULL_POSS);
 		v1Type = addTypeArgs(1, false, builderType, v1Type, data.getTypeArgs());
@@ -294,7 +299,16 @@ abstract class EclipseJavaUtilSingularizer extends EclipseSingularizer {
 		} else {
 			thenPart = initV1;
 		}
+		return thenPart;
+	}
+	
+	protected Statement createConstructBuilderVarIfNeeded(SingularData data, EclipseNode builderType, boolean mapMode) {
+		char[] v1Name = mapMode ? (new String(data.getPluralName()) + "$key").toCharArray() : data.getPluralName();
 		
-		return new IfStatement(cond, thenPart, 0, 0);
+		FieldReference thisDotField = new FieldReference(v1Name, 0L);
+		thisDotField.receiver = new ThisReference(0, 0);
+		Expression cond = new EqualExpression(thisDotField, new NullLiteral(0, 0), OperatorIds.EQUAL_EQUAL);
+		
+		return new IfStatement(cond, createConstructBuilderVar(data, builderType, mapMode), 0, 0);
 	}
 }

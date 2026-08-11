@@ -29,26 +29,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import org.eclipse.jdt.internal.compiler.ast.Annotation;
-import org.eclipse.jdt.internal.compiler.ast.Argument;
-import org.eclipse.jdt.internal.compiler.ast.Block;
-import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.EqualExpression;
-import org.eclipse.jdt.internal.compiler.ast.Expression;
-import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.FieldReference;
-import org.eclipse.jdt.internal.compiler.ast.ForeachStatement;
-import org.eclipse.jdt.internal.compiler.ast.IfStatement;
-import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.MessageSend;
-import org.eclipse.jdt.internal.compiler.ast.MethodDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.NullLiteral;
-import org.eclipse.jdt.internal.compiler.ast.OperatorIds;
-import org.eclipse.jdt.internal.compiler.ast.QualifiedTypeReference;
-import org.eclipse.jdt.internal.compiler.ast.SingleNameReference;
-import org.eclipse.jdt.internal.compiler.ast.Statement;
-import org.eclipse.jdt.internal.compiler.ast.ThisReference;
-import org.eclipse.jdt.internal.compiler.ast.TypeReference;
+import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 
 import lombok.AccessLevel;
@@ -160,6 +141,7 @@ public class EclipseJavaUtilMapSingularizer extends EclipseJavaUtilSingularizer 
 		generateSingularMethod(cfv, deprecate, returnTypeMaker.make(), returnStatementMaker.make(), data, builderType, fluent, access);
 		generatePluralMethod(cfv, deprecate, returnTypeMaker.make(), returnStatementMaker.make(), data, builderType, fluent, access);
 		generateClearMethod(cfv, deprecate, returnTypeMaker.make(), returnStatementMaker.make(), data, builderType, access);
+		if (data.isPreserveNull()) generateUnsetMethod(cfv, deprecate, returnTypeMaker.make(), returnStatementMaker.make(), data, builderType, access);
 	}
 	
 	private void generateClearMethod(CheckerFrameworkVersion cfv, boolean deprecate, TypeReference returnType, Statement returnStatement, SingularData data, EclipseNode builderType, AccessLevel access) {
@@ -186,12 +168,41 @@ public class EclipseJavaUtilMapSingularizer extends EclipseJavaUtilSingularizer 
 		clearMsg2.selector = "clear".toCharArray();
 		Block clearMsgs = new Block(2);
 		clearMsgs.statements = new Statement[] {clearMsg1, clearMsg2};
-		Statement clearStatement = new IfStatement(new EqualExpression(thisDotField, new NullLiteral(0, 0), OperatorIds.NOT_EQUAL), clearMsgs, 0, 0);
+		Statement clearStatement = new IfStatement(new EqualExpression(thisDotField, new NullLiteral(0, 0), OperatorIds.EQUAL_EQUAL), createConstructBuilderVar(data, builderType, true), clearMsgs, 0, 0);
 		md.statements = returnStatement != null ? new Statement[] {clearStatement, returnStatement} : new Statement[] {clearStatement};
 		md.returnType = returnType;
 		addCheckerFrameworkReturnsReceiver(md.returnType, data.getSource(), cfv);
 		md.annotations = generateSelfReturnAnnotations(deprecate, data.getSource());
 		
+		if (returnStatement != null) createRelevantNonNullAnnotation(builderType, md);
+		data.setGeneratedByRecursive(md);
+		injectMethod(builderType, md);
+	}
+
+	private void generateUnsetMethod(CheckerFrameworkVersion cfv, boolean deprecate, TypeReference returnType, Statement returnStatement, SingularData data, EclipseNode builderType, AccessLevel access) {
+		MethodDeclaration md = new MethodDeclaration(((CompilationUnitDeclaration) builderType.top().get()).compilationResult);
+		md.bits |= ECLIPSE_DO_NOT_TOUCH_FLAG;
+		md.modifiers = toEclipseModifier(access);
+
+		String pN = new String(data.getPluralName());
+		char[] keyFieldName = (pN + "$key").toCharArray();
+		char[] valueFieldName = (pN + "$value").toCharArray();
+
+		FieldReference thisDotField = new FieldReference(keyFieldName, 0L);
+		thisDotField.receiver = new ThisReference(0, 0);
+		FieldReference thisDotField2 = new FieldReference(valueFieldName, 0L);
+		thisDotField2.receiver = new ThisReference(0, 0);
+		md.selector = HandlerUtil.buildAccessorName(builderType, "unset", new String(data.getPluralName())).toCharArray();
+		Assignment unset1 = new Assignment(thisDotField, new NullLiteral(0, 0), 0);
+		Assignment unset2 = new Assignment(thisDotField2, new NullLiteral(0, 0), 0);
+		Block unsetAssignments = new Block(2);
+		unsetAssignments.statements = new Statement[] {unset1, unset2};
+		Statement clearStatement = new IfStatement(new EqualExpression(thisDotField, new NullLiteral(0, 0), OperatorIds.NOT_EQUAL), unsetAssignments, 0, 0);
+		md.statements = returnStatement != null ? new Statement[] {clearStatement, returnStatement} : new Statement[] {clearStatement};
+		md.returnType = returnType;
+		addCheckerFrameworkReturnsReceiver(md.returnType, data.getSource(), cfv);
+		md.annotations = generateSelfReturnAnnotations(deprecate, data.getSource());
+
 		if (returnStatement != null) createRelevantNonNullAnnotation(builderType, md);
 		data.setGeneratedByRecursive(md);
 		injectMethod(builderType, md);

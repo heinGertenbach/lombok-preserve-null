@@ -817,7 +817,7 @@ public class HandleSuperBuilder extends EclipseAnnotationHandler<SuperBuilder> {
 		} else {
 			Expression ifNull = new EqualExpression(tgt[0], new NullLiteral(0, 0), OperatorIds.EQUAL_EQUAL);
 			MessageSend emptyCollection = bfd.singularData.getSingularizer().getEmptyExpression(bfd.singularData.getTargetFqn(), bfd.singularData, type, source);
-			ms.arguments = new Expression[] {new ConditionalExpression(ifNull, emptyCollection, tgt[1])};
+			ms.arguments = bfd.singularData.isPreserveNull() ? new Expression[] {tgt[1]} : new Expression[] {new ConditionalExpression(ifNull, emptyCollection, tgt[1])};
 		}
 		ms.receiver = new SingleNameReference(BUILDER_VARIABLE_NAME, 0);
 		ms.selector = setterName;
@@ -1076,7 +1076,7 @@ public class HandleSuperBuilder extends EclipseAnnotationHandler<SuperBuilder> {
 				return null;
 			}
 			
-			return new SingularData(child, singularName, pluralName, typeArgs == null ? Collections.<TypeReference>emptyList() : Arrays.asList(typeArgs), targetFqn, singularizer, source, singularInstance.ignoreNullCollections(), setterPrefix.toCharArray());
+			return new SingularData(child, singularName, pluralName, typeArgs == null ? Collections.<TypeReference>emptyList() : Arrays.asList(typeArgs), targetFqn, singularizer, source, singularInstance.ignoreNullCollections(), singularInstance.preserveNull(), setterPrefix.toCharArray());
 		}
 		
 		return null;
