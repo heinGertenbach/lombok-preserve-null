@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2025 The Project Lombok Authors.
+ * Copyright (C) 2013-2026 The Project Lombok Authors.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -169,6 +169,9 @@ public class HandleSuperBuilder extends JavacAnnotationHandler<SuperBuilder> {
 		
 		job.parentType = parent;
 		JCClassDecl td = (JCClassDecl) parent.get();
+		job.builderClassName = job.replaceBuilderClassName(td.name);
+		if (!checkName("builderClassName", job.builderClassName, annotationNode)) return;
+		if (!checkBuilderClassNameAnnotationConflict("SuperBuilder", "lombok.SuperBuilder", job.builderClassName, ast, annotationNode)) return;
 		
 		// Gather all fields of the class that should be set by the builder.
 		ArrayList<JavacNode> nonFinalNonDefaultedFields = null;
@@ -217,8 +220,6 @@ public class HandleSuperBuilder extends JavacAnnotationHandler<SuperBuilder> {
 		}
 		
 		job.typeParams = job.builderTypeParams = td.typarams;
-		job.builderClassName = job.replaceBuilderClassName(td.name);
-		if (!checkName("builderClassName", job.builderClassName, annotationNode)) return;
 		
 		// <C, B> are the generics for our builder.
 		String classGenericName = "C";
@@ -260,7 +261,15 @@ public class HandleSuperBuilder extends JavacAnnotationHandler<SuperBuilder> {
 			String builderClassNameTemplate = BuilderJob.getBuilderClassNameTemplate(annotationNode, null);
 			String superclassBuilderClassName = job.replaceBuilderClassName(superclassName.toString(), builderClassNameTemplate);
 			superclassBuilderClass = parent.getTreeMaker().Select(cloneType(maker, (JCFieldAccess) extendsClause, annotationNode), parent.toName(superclassBuilderClassName));
+		} else if (extendsClause instanceof JCIdent) {
+			// Use the identifier Name, not Tree.toString(): javac pretty-prints non-ASCII
+			// names as \\uXXXX escapes, which then become the builder type's simple name.
+			Name superclassName = ((JCIdent) extendsClause).getName();
+			String builderClassNameTemplate = BuilderJob.getBuilderClassNameTemplate(annotationNode, null);
+			String superclassBuilderClassName = job.replaceBuilderClassName(superclassName.toString(), builderClassNameTemplate);
+			superclassBuilderClass = chainDots(parent, superclassName.toString(), superclassBuilderClassName);
 		} else if (extendsClause != null) {
+			// This is dangerous; `toString()` breaks on non-ascii. We should optimally never get here. This fallback mechanism will remain (better than hardcrash; `toString()` is likely to work in _some_ cases).
 			String builderClassNameTemplate = BuilderJob.getBuilderClassNameTemplate(annotationNode, null);
 			String superclassBuilderClassName = job.replaceBuilderClassName(extendsClause.toString(), builderClassNameTemplate);
 			superclassBuilderClass = chainDots(parent, extendsClause.toString(), superclassBuilderClassName);
@@ -841,6 +850,7 @@ public class HandleSuperBuilder extends JavacAnnotationHandler<SuperBuilder> {
 		} else {
 			methodDef = maker.MethodDef(modifiers, name, returnType, List.<JCTypeParameter>nil(), List.<JCVariableDecl>nil(), List.<JCExpression>nil(), null, null);
 		}
+		addCheckReturnValue(methodDef.mods, job.builderType, job.sourceNode);
 		return methodDef;
 	}
 	
@@ -869,6 +879,7 @@ public class HandleSuperBuilder extends JavacAnnotationHandler<SuperBuilder> {
 		} else {
 			methodDef = maker.MethodDef(modifiers, job.toName(job.buildMethodName), cloneSelfType(job.parentType), List.<JCTypeParameter>nil(), List.<JCVariableDecl>nil(), thrownExceptions, body, null);
 		}
+		addCheckReturnValue(methodDef.mods, job.builderType, job.sourceNode);
 		createRelevantNonNullAnnotation(job.builderType, methodDef);
 		return methodDef;
 	}

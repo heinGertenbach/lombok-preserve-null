@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2025 The Project Lombok Authors.
+ * Copyright (C) 2013-2026 The Project Lombok Authors.
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -57,6 +58,9 @@ import lombok.experimental.FieldDefaults;
  * target platform (e.g. useful for both javac and Eclipse lombok implementations).
  */
 public class HandlerUtil {
+	
+	private static AtomicInteger inTest = new AtomicInteger();
+	
 	private HandlerUtil() {}
 	
 	public enum FieldAccess {
@@ -79,7 +83,7 @@ public class HandlerUtil {
 		return 43;
 	}
 	
-	public static final List<String> NONNULL_ANNOTATIONS, BASE_COPYABLE_ANNOTATIONS, JACKSON_COPY_TO_GETTER_ANNOTATIONS, JACKSON_COPY_TO_SETTER_ANNOTATIONS, JACKSON_COPY_TO_BUILDER_SINGULAR_SETTER_ANNOTATIONS, JACKSON_COPY_TO_BUILDER_ANNOTATIONS;
+	public static final List<String> NONNULL_ANNOTATIONS, BASE_COPYABLE_ANNOTATIONS, JACKSON_COPY_TO_GETTER_ANNOTATIONS, JACKSON_COPY_TO_SETTER_ANNOTATIONS, JACKSON_COPY_TO_BUILDER_SINGULAR_SETTER_ANNOTATIONS, JACKSON_COPY_TO_BUILDER_ANNOTATIONS, IMPLIES_CHECK_RETURN_VALUE_ANNOTATIONS;
 	static {
 		// This is a list of annotations with a __highly specific meaning__: All annotations in this list indicate that passing null for the relevant item is __never__ acceptable, regardless of settings or circumstance.
 		// In other words, things like 'this models a database table, and the db table column has a nonnull constraint', or 'this represents a web form, and if this is null, the form is invalid' __do not count__ and should not be in this list;
@@ -496,6 +500,13 @@ public class HandlerUtil {
 			"com.fasterxml.jackson.annotation.JsonView",
 			"com.fasterxml.jackson.databind.annotation.JsonNaming",
 			"tools.jackson.databind.annotation.JsonNaming",
+		}));
+		IMPLIES_CHECK_RETURN_VALUE_ANNOTATIONS = Collections.unmodifiableList(Arrays.asList(new String[] {
+			"lombok.CheckReturnValue",
+			"android.annotation.CheckResult",
+			"androidx.annotation.CheckResult",
+			"org.checkerframework.dataflow.qual.SideEffectFree",
+			"org.checkerframework.dataflow.qual.Pure",
 		}));
 	}
 	
@@ -1043,5 +1054,17 @@ public class HandlerUtil {
 			return "@param " + paramName + " " + javadocWithoutTags;
 		}
 		return null;
+	}
+	
+	public static void failIfRunningInTest(String message) throws AssertionError {
+		if (inTest.intValue() != 0) throw new AssertionError("In test: " + message);
+	}
+	
+	public static void incrementRunningInTest() {
+		inTest.incrementAndGet();
+	}
+	
+	public static void decrementRunningInTest() {
+		if (inTest.decrementAndGet() < 0) throw new IllegalStateException();
 	}
 }
